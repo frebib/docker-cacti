@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eax
+
+chmod 666 /dev/std*
+chown -R $UID:$GID "$CACTI_HOME"
+
+mysql_cmd="mysql -h $MYSQL_HOST -P $MYSQL_PORT -u $MYSQL_USER -p$MYSQL_PASSWORD"
+mysql_root_cmd="mysql -h $MYSQL_HOST -P $MYSQL_PORT -u root -p$MYSQL_ROOT_PASSWORD"
+version_count=$($mysql_cmd -Nse \
+    "SELECT count(*) \
+    FROM information_schema.tables \
+    WHERE table_schema='$MYSQL_DATABASE' \
+    AND   table_name='version'")
+
+if [ $version_count -lt 1 ]; then
+    # Initialise database
+    echo "[i] Installing empty cacti database"
+    $mysql_cmd $MYSQL_DATABASE < $CACTI_HOME/cacti.sql
+    $mysql_root_cmd mysql <<-EOF
+		GRANT SELECT ON mysql.time_zone_name TO $MYSQL_USER@'%';
+		flush privileges;
+	EOF
+    echo "[i] Database successfully initialised"
+fi
+
+# Substitute in allowed clients
+sed -i "s|^\\;\?\\(listen.allowed_clients =\\).*|\1 ${ALLOWED_CLIENTS}|" /etc/php7/php-fpm.conf
+
+if [ "$(echo -n $URL_PATH | head -c1)" != '/' ]; then
+    export URL_PATH="/$URL_PATH"
+fi
+if [ "$(echo -n $URL_PATH | tail -c1)" != '/' ]; then
+    export URL_PATH="$URL_PATH/"
+fi
+
+exec su-exec $UID:$GID "$@"

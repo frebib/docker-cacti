@@ -1,0 +1,59 @@
+version: "2.2"
+
+volumes:
+  # Used to mount the static
+  # cacti content into nginx
+  cacti-web:
+
+networks:
+  cacti:
+  nginx:
+
+services:
+  mariadb:
+    image: yobasystems/alpine-mariadb
+    container_name: cacti-db
+    env_file: cacti.env
+    volumes:
+      - ./cacti/init-mysql.sh:/scripts/pre-exec.d/init-cacti.sh:ro
+      - ./cacti-db:/var/lib/mysql:rw
+    healthcheck: 
+      test: echo 'SELECT 1+1;' | mysql -u root > /dev/null || exit 1
+      interval: 5s
+      timeout: 20s
+      retries: 5
+    networks:
+      - cacti
+    restart: always
+
+  cacti:
+    image: frebib/cacti
+    container_name: cacti
+    depends_on:
+      - mariadb
+    env_file: cacti.env
+    environment:
+      - MYSQL_HOST=cacti-db
+      - ALLOWED_CLIENTS=cacti-web
+    volumes:
+      - cacti-web:/usr/share/cacti
+    networks:
+      - cacti
+      - nginx
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    container_name: cacti-web
+    depends_on:
+      - cacti
+    volumes:
+      - cacti-web:/var/www/cacti
+      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - 80:80/tcp
+    networks:
+      - nginx
+    restart: always
+
+# vim: sw=2
